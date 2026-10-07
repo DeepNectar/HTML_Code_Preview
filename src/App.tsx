@@ -4,8 +4,6 @@ const SAMPLE_HTML = `<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Sample Page</title>
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
     body {
@@ -37,32 +35,115 @@ const SAMPLE_HTML = `<!DOCTYPE html>
       border-radius: 50px;
       font-weight: 600;
       text-decoration: none;
-      transition: transform 0.2s, box-shadow 0.2s;
-      cursor: pointer;
-      border: none;
-      font-size: 1rem;
-    }
-    .btn:hover {
-      transform: translateY(-2px);
-      box-shadow: 0 8px 25px rgba(0,0,0,0.2);
     }
   </style>
 </head>
 <body>
   <div class="card">
     <h1>🎉 Hello, World!</h1>
-    <p>This is a sample HTML page rendered in the preview. Paste your own HTML code to see it come alive!</p>
-    <button class="btn" onclick="alert('It works!')">Click Me</button>
+    <p>This is a sample HTML email template. Click "Copy Preview" and paste it into your email!</p>
+    <a href="#" class="btn">Get Started</a>
   </div>
 </body>
 </html>`;
+
+/**
+ * Extracts the body content from a full HTML document, or returns the HTML as-is
+ * if it's already a fragment. Wraps it with inline styles for email compatibility.
+ */
+function prepareHtmlForEmail(html: string): string {
+  // Check if it's a full HTML document
+  const hasHtmlTag = /<html[\s>]/i.test(html);
+  const hasBodyTag = /<body[\s>]/i.test(html);
+  const hasDoctype = /<!doctype/i.test(html);
+
+  if (hasHtmlTag || hasBodyTag || hasDoctype) {
+    // Parse to extract <style> tags and body content
+    const parser = new DOMParser();
+    const doc = parser.parseFromString(html, "text/html");
+
+    // Collect all styles
+    const styleTags = doc.querySelectorAll("style");
+    let stylesHtml = "";
+    styleTags.forEach((s) => {
+      stylesHtml += s.outerHTML;
+    });
+
+    // Get body content
+    const bodyContent = doc.body.innerHTML;
+
+    // Wrap in a self-contained HTML for email
+    return `<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+${stylesHtml}
+</head>
+<body>${bodyContent}</body>
+</html>`;
+  }
+
+  // It's already a fragment, return as-is
+  return html;
+}
+
+/**
+ * Copy rich HTML to clipboard so it can be pasted into email clients
+ * with formatting preserved.
+ */
+async function copyRichHtmlToClipboard(html: string): Promise<boolean> {
+  try {
+    // Modern Clipboard API with HTML MIME type
+    if (navigator.clipboard && typeof ClipboardItem !== "undefined") {
+      const htmlBlob = new Blob([html], { type: "text/html" });
+      const textBlob = new Blob([html], { type: "text/plain" });
+      const item = new ClipboardItem({
+        "text/html": htmlBlob,
+        "text/plain": textBlob,
+      });
+      await navigator.clipboard.write([item]);
+      return true;
+    }
+  } catch {
+    // Fall through to fallback
+  }
+
+  // Fallback: use a contenteditable div to copy rich HTML
+  try {
+    const container = document.createElement("div");
+    container.innerHTML = html;
+    container.contentEditable = "true";
+    container.style.position = "fixed";
+    container.style.left = "-9999px";
+    container.style.top = "0";
+    container.style.opacity = "0";
+    document.body.appendChild(container);
+
+    // Select the content
+    const range = document.createRange();
+    range.selectNodeContents(container);
+    const selection = window.getSelection();
+    selection?.removeAllRanges();
+    selection?.addRange(range);
+
+    const success = document.execCommand("copy");
+    document.body.removeChild(container);
+    selection?.removeAllRanges();
+    return success;
+  } catch {
+    return false;
+  }
+}
 
 export default function App() {
   const [htmlCode, setHtmlCode] = useState("");
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [copied, setCopied] = useState(false);
+  const [previewCopied, setPreviewCopied] = useState(false);
   const [showCode, setShowCode] = useState(true);
   const [previewKey, setPreviewKey] = useState(0);
+  const [copyStatus, setCopyStatus] = useState<"idle" | "success" | "error">("idle");
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   const handleClear = () => {
@@ -95,6 +176,25 @@ export default function App() {
     }
   };
 
+  const handleCopyPreview = async () => {
+    if (!htmlCode) return;
+
+    const emailHtml = prepareHtmlForEmail(htmlCode);
+    const success = await copyRichHtmlToClipboard(emailHtml);
+
+    if (success) {
+      setPreviewCopied(true);
+      setCopyStatus("success");
+      setTimeout(() => {
+        setPreviewCopied(false);
+        setCopyStatus("idle");
+      }, 3000);
+    } else {
+      setCopyStatus("error");
+      setTimeout(() => setCopyStatus("idle"), 3000);
+    }
+  };
+
   const handlePaste = async () => {
     try {
       const text = await navigator.clipboard.readText();
@@ -120,14 +220,18 @@ export default function App() {
         e.preventDefault();
         setShowCode((v) => !v);
       }
-      if ((e.metaKey || e.ctrlKey) && e.key === "Escape") {
-        e.preventDefault();
+      if (e.key === "Escape") {
         setIsFullscreen(false);
+      }
+      // Ctrl+Shift+C to copy preview
+      if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.key === "C") {
+        e.preventDefault();
+        handleCopyPreview();
       }
     };
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
-  }, []);
+  }, [htmlCode]);
 
   // Fullscreen preview mode
   if (isFullscreen) {
@@ -135,15 +239,26 @@ export default function App() {
       <div className="fixed inset-0 z-50 bg-white flex flex-col">
         <div className="flex items-center justify-between px-4 py-2 bg-gray-900 text-white shrink-0">
           <span className="text-sm font-medium opacity-70">Full Preview</span>
-          <button
-            onClick={() => setIsFullscreen(false)}
-            className="flex items-center gap-2 px-3 py-1.5 text-sm bg-white/10 hover:bg-white/20 rounded-lg transition-colors"
-          >
-            <svg xmlns="http://www.w3.org/2000/svg" className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-              <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
-            </svg>
-            Exit (Esc)
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={handleCopyPreview}
+              className="flex items-center gap-1.5 px-3 py-1.5 text-sm bg-emerald-600 hover:bg-emerald-500 rounded-lg transition-colors"
+            >
+              <svg xmlns="http://www.w3.org/2000/svg" className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M8 5H6a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2v-1M8 5a2 2 0 002 2h2a2 2 0 002-2M8 5a2 2 0 012-2h2a2 2 0 012 2m0 0h2a2 2 0 012 2v3m2 4H10m0 0l3-3m-3 3l3 3" />
+              </svg>
+              {previewCopied ? "✓ Copied!" : "Copy Preview"}
+            </button>
+            <button
+              onClick={() => setIsFullscreen(false)}
+              className="flex items-center gap-2 px-3 py-1.5 text-sm bg-white/10 hover:bg-white/20 rounded-lg transition-colors"
+            >
+              <svg xmlns="http://www.w3.org/2000/svg" className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+              </svg>
+              Exit (Esc)
+            </button>
+          </div>
         </div>
         <iframe
           key={previewKey}
@@ -168,7 +283,7 @@ export default function App() {
           </div>
           <div>
             <h1 className="text-base sm:text-lg font-bold tracking-tight">HTML Preview</h1>
-            <p className="text-xs text-gray-500 hidden sm:block">Paste HTML code → see it rendered instantly</p>
+            <p className="text-xs text-gray-500 hidden sm:block">Paste HTML → Preview → Copy to Email</p>
           </div>
         </div>
 
@@ -234,9 +349,9 @@ export default function App() {
                   onClick={handleCopyCode}
                   disabled={!htmlCode}
                   className="px-2.5 py-1 text-[11px] font-medium text-gray-400 hover:text-white bg-gray-800/60 hover:bg-gray-700 disabled:opacity-40 disabled:cursor-not-allowed rounded-md transition-colors"
-                  title="Copy code"
+                  title="Copy source code"
                 >
-                  {copied ? "✓ Copied" : "Copy"}
+                  {copied ? "✓ Copied" : "Copy Code"}
                 </button>
                 <button
                   onClick={handleClear}
@@ -275,9 +390,43 @@ export default function App() {
               <span className="w-2 h-2 rounded-full bg-green-400"></span>
               Preview
             </span>
-            {!htmlCode && (
-              <span className="text-[11px] text-gray-400">Waiting for HTML code...</span>
-            )}
+
+            {/* Copy Preview Button - Main Action */}
+            <button
+              onClick={handleCopyPreview}
+              disabled={!htmlCode}
+              className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-lg transition-all duration-200 disabled:opacity-40 disabled:cursor-not-allowed ${
+                copyStatus === "success"
+                  ? "bg-emerald-500 text-white shadow-lg shadow-emerald-500/30"
+                  : copyStatus === "error"
+                  ? "bg-red-500 text-white"
+                  : "bg-emerald-600 hover:bg-emerald-500 text-white shadow-md shadow-emerald-600/20 hover:shadow-lg hover:shadow-emerald-500/30"
+              }`}
+              title="Copy rendered preview to paste into email (Ctrl+Shift+C)"
+            >
+              {copyStatus === "success" ? (
+                <>
+                  <svg xmlns="http://www.w3.org/2000/svg" className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                  </svg>
+                  Copied! Paste in Email
+                </>
+              ) : copyStatus === "error" ? (
+                <>
+                  <svg xmlns="http://www.w3.org/2000/svg" className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L4.082 16.5c-.77.833.192 2.5 1.732 2.5z" />
+                  </svg>
+                  Failed
+                </>
+              ) : (
+                <>
+                  <svg xmlns="http://www.w3.org/2000/svg" className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M8 5H6a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2v-1M8 5a2 2 0 002 2h2a2 2 0 002-2M8 5a2 2 0 012-2h2a2 2 0 012 2m0 0h2a2 2 0 012 2v3m2 4H10m0 0l3-3m-3 3l3 3" />
+                  </svg>
+                  Copy Preview
+                </>
+              )}
+            </button>
           </div>
 
           {/* Preview iframe */}
@@ -310,13 +459,22 @@ export default function App() {
               </div>
             )}
           </div>
+
+          {/* Copy instruction bar */}
+          {htmlCode && (
+            <div className="flex items-center justify-center px-3 py-2 bg-emerald-50 border-t border-emerald-100 shrink-0">
+              <p className="text-[11px] text-emerald-700 text-center">
+                <span className="font-semibold">💡 Tip:</span> Click <strong>"Copy Preview"</strong> above, then paste (Ctrl+V) directly into Gmail, Outlook, or any email client
+              </p>
+            </div>
+          )}
         </div>
       </div>
 
       {/* Footer */}
       <footer className="flex items-center justify-between px-4 py-1.5 bg-gray-900 border-t border-gray-800 text-[10px] text-gray-600 shrink-0">
-        <span>Paste HTML → See it rendered</span>
-        <span className="hidden sm:inline">Ctrl+Enter to toggle panels</span>
+        <span>Copy rendered preview → Paste in email</span>
+        <span className="hidden sm:inline">Ctrl+Shift+C to copy preview</span>
       </footer>
     </div>
   );
