@@ -1,47 +1,6 @@
 import { useState, useRef, useCallback, useEffect } from "react";
 
-export default function App() {
-  const [htmlCode, setHtmlCode] = useState("");
-  const [isFullscreen, setIsFullscreen] = useState(false);
-  const [copied, setCopied] = useState(false);
-  const [showCode, setShowCode] = useState(true);
-  const textareaRef = useRef<HTMLTextAreaElement>(null);
-
-  const handleClear = () => {
-    setHtmlCode("");
-    textareaRef.current?.focus();
-  };
-
-  const handleCopyCode = async () => {
-    if (!htmlCode) return;
-    try {
-      await navigator.clipboard.writeText(htmlCode);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
-    } catch {
-      // fallback
-      const ta = document.createElement("textarea");
-      ta.value = htmlCode;
-      document.body.appendChild(ta);
-      ta.select();
-      document.execCommand("copy");
-      document.body.removeChild(ta);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
-    }
-  };
-
-  const handlePaste = useCallback(async () => {
-    try {
-      const text = await navigator.clipboard.readText();
-      setHtmlCode(text);
-    } catch {
-      textareaRef.current?.focus();
-    }
-  }, []);
-
-  const loadSample = () => {
-    setHtmlCode(`<!DOCTYPE html>
+const SAMPLE_HTML = `<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8">
@@ -79,6 +38,9 @@ export default function App() {
       font-weight: 600;
       text-decoration: none;
       transition: transform 0.2s, box-shadow 0.2s;
+      cursor: pointer;
+      border: none;
+      font-size: 1rem;
     }
     .btn:hover {
       transform: translateY(-2px);
@@ -90,18 +52,77 @@ export default function App() {
   <div class="card">
     <h1>🎉 Hello, World!</h1>
     <p>This is a sample HTML page rendered in the preview. Paste your own HTML code to see it come alive!</p>
-    <a href="#" class="btn">Get Started</a>
+    <button class="btn" onclick="alert('It works!')">Click Me</button>
   </div>
 </body>
-</html>`);
+</html>`;
+
+export default function App() {
+  const [htmlCode, setHtmlCode] = useState("");
+  const [isFullscreen, setIsFullscreen] = useState(false);
+  const [copied, setCopied] = useState(false);
+  const [showCode, setShowCode] = useState(true);
+  const [previewKey, setPreviewKey] = useState(0);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
+
+  const handleClear = () => {
+    setHtmlCode("");
+    setPreviewKey((k) => k + 1);
+    textareaRef.current?.focus();
   };
 
-  // Keyboard shortcut: Ctrl/Cmd + Enter to toggle view
+  const handleCopyCode = async () => {
+    if (!htmlCode) return;
+    try {
+      await navigator.clipboard.writeText(htmlCode);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch {
+      try {
+        const ta = document.createElement("textarea");
+        ta.value = htmlCode;
+        ta.style.position = "fixed";
+        ta.style.opacity = "0";
+        document.body.appendChild(ta);
+        ta.select();
+        document.execCommand("copy");
+        document.body.removeChild(ta);
+        setCopied(true);
+        setTimeout(() => setCopied(false), 2000);
+      } catch {
+        alert("Could not copy to clipboard");
+      }
+    }
+  };
+
+  const handlePaste = async () => {
+    try {
+      const text = await navigator.clipboard.readText();
+      if (text) {
+        setHtmlCode(text);
+        setPreviewKey((k) => k + 1);
+      }
+    } catch {
+      textareaRef.current?.focus();
+      alert("Please use Ctrl+V / Cmd+V to paste from your clipboard");
+    }
+  };
+
+  const loadSample = () => {
+    setHtmlCode(SAMPLE_HTML);
+    setPreviewKey((k) => k + 1);
+  };
+
+  // Keyboard shortcuts
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
       if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
         e.preventDefault();
         setShowCode((v) => !v);
+      }
+      if ((e.metaKey || e.ctrlKey) && e.key === "Escape") {
+        e.preventDefault();
+        setIsFullscreen(false);
       }
     };
     window.addEventListener("keydown", handler);
@@ -112,8 +133,8 @@ export default function App() {
   if (isFullscreen) {
     return (
       <div className="fixed inset-0 z-50 bg-white flex flex-col">
-        <div className="flex items-center justify-between px-4 py-2 bg-gray-900 text-white">
-          <span className="text-sm font-medium opacity-70">Preview</span>
+        <div className="flex items-center justify-between px-4 py-2 bg-gray-900 text-white shrink-0">
+          <span className="text-sm font-medium opacity-70">Full Preview</span>
           <button
             onClick={() => setIsFullscreen(false)}
             className="flex items-center gap-2 px-3 py-1.5 text-sm bg-white/10 hover:bg-white/20 rounded-lg transition-colors"
@@ -121,10 +142,11 @@ export default function App() {
             <svg xmlns="http://www.w3.org/2000/svg" className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
               <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
             </svg>
-            Exit Fullscreen
+            Exit (Esc)
           </button>
         </div>
         <iframe
+          key={previewKey}
           srcDoc={htmlCode}
           title="Full Preview"
           className="flex-1 w-full border-0 bg-white"
@@ -176,10 +198,10 @@ export default function App() {
       </header>
 
       {/* Main Content */}
-      <div className="flex flex-1 overflow-hidden">
+      <div className="flex flex-1 overflow-hidden flex-col lg:flex-row">
         {/* Code Editor Panel */}
         {showCode && (
-          <div className="flex flex-col w-full lg:w-1/2 border-r border-gray-800 bg-gray-950">
+          <div className="flex flex-col w-full lg:w-1/2 h-1/2 lg:h-full border-b lg:border-b-0 lg:border-r border-gray-800 bg-gray-950">
             {/* Editor Toolbar */}
             <div className="flex items-center justify-between px-3 py-2 bg-gray-900/60 border-b border-gray-800 shrink-0">
               <div className="flex items-center gap-2">
@@ -235,20 +257,18 @@ export default function App() {
                 onChange={(e) => setHtmlCode(e.target.value)}
                 placeholder={`Paste your HTML code here...\n\nExample:\n<div style="padding: 20px; background: #f0f0f0;">\n  <h1>Hello World!</h1>\n  <p>This will be rendered in the preview.</p>\n</div>`}
                 spellCheck={false}
-                className="absolute inset-0 w-full h-full p-4 bg-transparent text-sm font-mono text-gray-300 placeholder-gray-600 resize-none outline-none leading-relaxed selection:bg-violet-500/30"
+                className="w-full h-full p-4 bg-transparent text-sm font-mono text-gray-300 placeholder-gray-600 resize-none outline-none leading-relaxed selection:bg-violet-500/30"
                 style={{
                   tabSize: 2,
                   caretColor: "#a78bfa",
                 }}
               />
-              {/* Line numbers gutter effect */}
-              <div className="absolute left-0 top-0 bottom-0 w-10 bg-gray-900/30 pointer-events-none" />
             </div>
           </div>
         )}
 
         {/* Preview Panel */}
-        <div className={`flex flex-col ${showCode ? "w-full lg:w-1/2" : "w-full"} bg-white`}>
+        <div className={`flex flex-col ${showCode ? "w-full lg:w-1/2 h-1/2 lg:h-full" : "w-full h-full"} bg-white`}>
           {/* Preview Toolbar */}
           <div className="flex items-center justify-between px-3 py-2 bg-gray-100 border-b border-gray-200 shrink-0">
             <span className="flex items-center gap-1.5 text-xs font-medium text-gray-500">
@@ -264,6 +284,7 @@ export default function App() {
           <div className="flex-1 relative overflow-hidden bg-white">
             {htmlCode ? (
               <iframe
+                key={previewKey}
                 srcDoc={htmlCode}
                 title="HTML Preview"
                 className="absolute inset-0 w-full h-full border-0"
@@ -278,7 +299,7 @@ export default function App() {
                 </div>
                 <div className="text-center">
                   <p className="text-sm font-medium text-gray-400">No HTML to preview</p>
-                  <p className="text-xs text-gray-300 mt-1">Paste some HTML code on the left to see it here</p>
+                  <p className="text-xs text-gray-300 mt-1">Paste some HTML code to see it here</p>
                 </div>
                 <button
                   onClick={loadSample}

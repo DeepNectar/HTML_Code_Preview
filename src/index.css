@@ -1,5 +1,13 @@
 @import "tailwindcss";
 
+/* Ensure full height */
+html, body, #root {
+  height: 100%;
+  margin: 0;
+  padding: 0;
+  overflow: hidden;
+}
+
 /* Custom scrollbar for the editor */
 textarea::-webkit-scrollbar {
   width: 8px;
@@ -19,18 +27,18 @@ textarea::-webkit-scrollbar-thumb:hover {
   background: rgba(255, 255, 255, 0.2);
 }
 
-/* Smooth transitions */
+/* Smooth font rendering */
 * {
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
 }
 
-/* Ensure textarea fills the container */
-textarea {
-  scrollbar-gutter: stable;
-}
-
-/* Prevent iframe from having scrollbars when not needed */
+/* Prevent iframe scrollbar issues */
 iframe {
   overflow: auto;
+}
+
+/* Fix textarea not stretching properly */
+textarea {
+  display: block;
 }
